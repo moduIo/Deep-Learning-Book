@@ -1,5 +1,5 @@
 ###
-# Implementation of a deep neural network on MNIST
+# Implementation of batch normalization on MNIST
 ###
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
@@ -15,12 +15,20 @@ n_outputs = 10      # 10-classification problem
 
 X = tf.placeholder(tf.float32, shape=(None, n_inputs), name="X")  # X is a matrix of mini-batch examples
 y = tf.placeholder(tf.int64, shape=(None), name="y")
+training = tf.placeholder_with_default(False, shape=(), name='training')  # Boolean flag used when computing batch level statistics
 
 # Define DNN architecture
 with tf.name_scope("dnn"):
-	hidden1 = tf.layers.dense(X, n_hidden1, name="hidden1", activation=tf.nn.relu)
-	hidden2 = tf.layers.dense(hidden1, n_hidden2, name="hidden2", activation=tf.nn.relu)
-	logits = tf.layers.dense(hidden2, n_outputs, name="outputs")
+	hidden1 = tf.layers.dense(X, n_hidden1, name="hidden1")
+	bn1 = tf.layers.batch_normalization(hidden1, training=training, momentum=0.9)
+	bn1_activation = tf.nn.elu(bn1)
+
+	hidden2 = tf.layers.dense(bn1_activation, n_hidden2, name="hidden2", activation=tf.nn.relu)
+	bn2 = tf.layers.batch_normalization(hidden2, training=training, momentum=0.9)
+	bn2_activation = tf.nn.elu(bn2)
+	
+	logits_unnormalized = tf.layers.dense(bn2_activation, n_outputs, name="outputs")
+	logits = tf.layers.batch_normalization(logits_unnormalized, training=training, momentum=0.9)
 
 # Define mean cross entropy loss
 with tf.name_scope("loss"):
@@ -41,7 +49,6 @@ with tf.name_scope("eval"):
 
 # Define initializer and saver nodes
 init = tf.global_variables_initializer()
-saver = tf.train.Saver()
 
 #
 # Execution Phase
@@ -49,6 +56,7 @@ saver = tf.train.Saver()
 mnist = input_data.read_data_sets("/tmp/data/")
 n_epochs = 30
 batch_size = 50
+update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
 with tf.Session() as sess:
 	init.run()
@@ -57,12 +65,9 @@ with tf.Session() as sess:
 		for iteration in range(mnist.train.num_examples // batch_size):
 			# Get batch data and train
 			X_batch, y_batch = mnist.train.next_batch(batch_size)
-			sess.run(training_op, feed_dict={X: X_batch, y: y_batch})
+			sess.run([training_op, update_ops], feed_dict={training: True, X: X_batch, y: y_batch})
 
 		# Evaluate model performance
 		acc_train = accuracy.eval(feed_dict={X: X_batch, y: y_batch})
 		acc_test = accuracy.eval(feed_dict={X: mnist.test.images, y:mnist.test.labels})
 		print(epoch, "Train accuracy: ", acc_train, "Test accuracy: ", acc_test)
-
-	# Save trained model
-	saver.save(sess, "./mnist_dnn.ckpt")
